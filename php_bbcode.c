@@ -37,12 +37,11 @@ static int le_bbcode;
    Common code for content and parameter handlers */
 static int _php_bbcode_callback_handler(int cb_type, bstring content, bstring param, zval *func_name)
 {
-	zval *retval = NULL;
-	zval ***zargs = NULL;
-	char *callable = NULL;
+	zval retval;
+
+	zend_string *callable = NULL;
 	int i, res;
 	bstring target;
-	char *cb_name = "";
 	TSRMLS_FETCH();
 
 	switch (cb_type) {
@@ -55,27 +54,25 @@ static int _php_bbcode_callback_handler(int cb_type, bstring content, bstring pa
 			break;
 	}
 
-	zargs = (zval ***) emalloc(sizeof(zval **) * 2);
-	zargs[0] = emalloc(sizeof(zval *));
-	MAKE_STD_ZVAL(*zargs[0]);
-	ZVAL_STRINGL(*zargs[0], bdata(content), blength(content), 1);
-	zargs[1] = emalloc(sizeof(zval *));
-	MAKE_STD_ZVAL(*zargs[1]);
-	ZVAL_STRINGL(*zargs[1], bdata(param), blength(param), 1);
+	zval* zargs = emalloc(sizeof(zval) * 2);
+	ZVAL_STRINGL(&zargs[0], bdata(content), blength(content));
+	ZVAL_STRINGL(&zargs[1], bdata(param), blength(param));
 
-	res = call_user_function_ex(EG(function_table), NULL, func_name, &retval, 2, zargs, 1, NULL TSRMLS_CC);
-	
+	res = call_user_function_ex(
+        EG(function_table), NULL, func_name, &retval, 2, zargs, 1, NULL TSRMLS_CC
+    );
+
 	if (res != SUCCESS) {
 		if (!zend_is_callable(func_name, 0, &callable TSRMLS_CC)) {
 			php_error_docref(NULL TSRMLS_CC, E_WARNING, "function `%s' is not callable", callable);
 		} else {
 			php_error_docref(NULL TSRMLS_CC, E_WARNING, "callback function %s() failed", callable);
 		}
-		efree(callable);
-	} else if (&retval != NULL) {
+		zend_string_release(callable);
+	} else {
 		convert_to_string_ex(&retval);
-		if (Z_STRLEN_P(retval)) {
-			bassignblk(target, Z_STRVAL_P(retval), Z_STRLEN_P(retval));
+		if (Z_STRLEN(retval)) {
+			bassignblk(target, Z_STRVAL(retval), Z_STRLEN(retval));
 		} else {
 			bdelete(target, 0, blength(target));
 		}
@@ -84,8 +81,7 @@ static int _php_bbcode_callback_handler(int cb_type, bstring content, bstring pa
 
 	/* Free zargs */
 	for (i = 0; i < 2; i++) {
-		zval_ptr_dtor(zargs[i]);
-		efree(zargs[i]);
+		zval_ptr_dtor(&zargs[i]);
 	}
 	efree(zargs);
 
@@ -111,9 +107,9 @@ static int _php_bbcode_param_handler(bstring content, bstring param, void *func_
    Fills a bbcode_container */
 static void _php_bbcode_add_element(bbcode_parser_p parser, char *tag_name, int tag_name_len, zval *content TSRMLS_DC)
 {
-	zval **e;
+	zval *e;
 	long type;
-	char *callback_name;
+	zend_string* callback_name;
 	char empty[] = "";
 	char all[] = "all";
 	int (*content_handling_func)(bstring content, bstring param, void *func_data) = NULL;
@@ -135,74 +131,72 @@ static void _php_bbcode_add_element(bbcode_parser_p parser, char *tag_name, int 
 	}
 
 	/* flags */
-	if ((SUCCESS == zend_hash_find(ht, "flags", sizeof("flags"), (void *) &e)) &&
-		(Z_TYPE_PP(e) == IS_LONG)
-	) {
-		flags = Z_LVAL_PP(e);
+	if ((e = zend_hash_str_find(ht, "flags", strlen("flags"))) != NULL && Z_TYPE_P(e) == IS_LONG) {
+		flags = Z_LVAL_P(e);
 	}
 
 	/* type */
-	if ((SUCCESS == zend_hash_find(ht, "type", sizeof("type"), (void *) &e)) &&
-		(Z_TYPE_PP(e) == IS_LONG)
-	) {
-		type = Z_LVAL_PP(e);
+	if ((e = zend_hash_str_find(ht, "type", strlen("type"))) != NULL && Z_TYPE_P(e) == IS_LONG) {
+		type = Z_LVAL_P(e);
 	} else {
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "No type specified for tag [%s]", tag_name);
 		return;
 	}
 
 	/* open_tag */
-	if ((SUCCESS == zend_hash_find(ht, "open_tag", sizeof("open_tag"), (void *) &e)) &&
-		(Z_TYPE_PP(e) == IS_STRING) && Z_STRLEN_PP(e)
+	if (
+        (e = zend_hash_str_find(ht, "open_tag", strlen("open_tag"))) != NULL &&
+		Z_TYPE_P(e) == IS_STRING && Z_STRLEN_P(e)
 	) {
-		open_tag = Z_STRVAL_PP(e);
-		open_tag_len = Z_STRLEN_PP(e);
+		open_tag = Z_STRVAL_P(e);
+		open_tag_len = Z_STRLEN_P(e);
 	} else {
 		open_tag = empty;
 	}
 
 	/* close_tag */
-	if ((SUCCESS == zend_hash_find(ht, "close_tag", sizeof("close_tag"), (void *) &e)) &&
-		(Z_TYPE_PP(e) == IS_STRING) && Z_STRLEN_PP(e)
+	if (
+        (e = zend_hash_str_find(ht, "close_tag", strlen("close_tag"))) != NULL &&
+		(Z_TYPE_P(e) == IS_STRING) && Z_STRLEN_P(e)
 	) {
-		close_tag = Z_STRVAL_PP(e);
-		close_tag_len = Z_STRLEN_PP(e);
+		close_tag = Z_STRVAL_P(e);
+		close_tag_len = Z_STRLEN_P(e);
 	} else {
 		close_tag = empty;
 	}
 
 	/* default_arg */
-	if ((SUCCESS == zend_hash_find(ht, "default_arg", sizeof("default_arg"), (void *) &e)) &&
-		(Z_TYPE_PP(e) == IS_STRING) && Z_STRLEN_PP(e)
+	if (
+        (e = zend_hash_str_find(ht, "default_arg", strlen("default_arg"))) != NULL &&
+		Z_TYPE_P(e) == IS_STRING && Z_STRLEN_P(e)
 	) {
-		default_arg = Z_STRVAL_PP(e);
-		default_arg_len = Z_STRLEN_PP(e);
+		default_arg = Z_STRVAL_P(e);
+		default_arg_len = Z_STRLEN_P(e);
 	} else {
 		default_arg = empty;
 	}
 
 	/* max_parsed */
-	if ((SUCCESS == zend_hash_find(ht, "max", sizeof("max"), (void *) &e)) &&
-		(Z_TYPE_PP(e) == IS_LONG)
-	) {
-		max_parsed = Z_LVAL_PP(e);
+	if ((e = zend_hash_str_find(ht, "max", strlen("max"))) != NULL && Z_TYPE_P(e) == IS_LONG) {
+		max_parsed = Z_LVAL_P(e);
 	}
 
 	/* content_handling */
-	if ((SUCCESS == zend_hash_find(ht, "content_handling", sizeof("content_handling"), (void *) &e)) && 
-		((Z_TYPE_PP(e) == IS_STRING && Z_STRLEN_PP(e)) || (Z_TYPE_PP(e) == IS_ARRAY))
+	if (
+        (e = zend_hash_str_find(ht, "content_handling", strlen("content_handling"))) != NULL &&
+		((Z_TYPE_P(e) == IS_STRING && Z_STRLEN_P(e)) || Z_TYPE_P(e) == IS_ARRAY)
 	) {
 		SEPARATE_ZVAL(e);
-		if (Z_TYPE_PP(e) != IS_STRING && Z_TYPE_PP(e) != IS_ARRAY){
+		if (Z_TYPE_P(e) != IS_STRING && Z_TYPE_P(e) != IS_ARRAY){
 			convert_to_string_ex(e);
 		}
-		if (!zend_is_callable(*e, 0, &callback_name TSRMLS_CC)) {
+		if (!zend_is_callable(e, 0, &callback_name TSRMLS_CC)) {
 			php_error_docref(NULL TSRMLS_CC, E_WARNING, "First argument is expected to be a valid callback, '%s' was given", callback_name);
-			efree(callback_name);
+			zend_string_release(callback_name);
 			return;
 		}
-		efree(callback_name);
-		content_handling = *e;
+		zend_string_release(callback_name);
+		content_handling = e;
 		content_handling_func = _php_bbcode_content_handler;
 	} else {
 		content_handling_func = NULL;
@@ -210,20 +204,21 @@ static void _php_bbcode_add_element(bbcode_parser_p parser, char *tag_name, int 
 	}
 
 	/* param_handling */
-	if ((SUCCESS == zend_hash_find(ht, "param_handling", sizeof("param_handling"), (void *) &e)) &&
-		((Z_TYPE_PP(e) == IS_STRING && Z_STRLEN_PP(e)) || (Z_TYPE_PP(e) == IS_ARRAY))
+	if (
+        (e = zend_hash_str_find(ht, "param_handling", strlen("param_handling"))) != NULL &&
+        ((Z_TYPE_P(e) == IS_STRING && Z_STRLEN_P(e)) || Z_TYPE_P(e) == IS_ARRAY)
 	) {
 		SEPARATE_ZVAL(e);
-		if (Z_TYPE_PP(e) != IS_STRING && Z_TYPE_PP(e) != IS_ARRAY){
+		if (Z_TYPE_P(e) != IS_STRING && Z_TYPE_P(e) != IS_ARRAY){
 			convert_to_string_ex(e);
 		}
-		if (!zend_is_callable(*e, 0, &callback_name TSRMLS_CC)) {
+		if (!zend_is_callable(e, 0, &callback_name TSRMLS_CC)) {
 			php_error_docref(NULL TSRMLS_CC, E_WARNING, "First argument is expected to be a valid callback, '%s' was given", callback_name);
-			efree(callback_name);
+			zend_string_release(callback_name);
 			return;
 		}
-		efree(callback_name);
-		param_handling = *e;
+		zend_string_release(callback_name);
+		param_handling = e;
 		param_handling_func = _php_bbcode_param_handler;
 	} else {
 		param_handling_func = NULL;
@@ -231,19 +226,15 @@ static void _php_bbcode_add_element(bbcode_parser_p parser, char *tag_name, int 
 	}
 
 	/* childs */
-	if ((SUCCESS == zend_hash_find(ht, "childs", sizeof("childs"), (void *) &e)) &&
-		(Z_TYPE_PP(e) == IS_STRING)
-	) {
-		childs = Z_STRVAL_PP(e);
-		childs_len = Z_STRLEN_PP(e);
+	if ((e = zend_hash_str_find(ht, "childs", strlen("childs"))) != NULL && Z_TYPE_P(e) == IS_STRING) {
+		childs = Z_STRVAL_P(e);
+		childs_len = Z_STRLEN_P(e);
 	}
 
 	/* parents */
-	if ((SUCCESS == zend_hash_find(ht, "parents", sizeof("parents"), (void *) &e)) &&
-		(Z_TYPE_PP(e) == IS_STRING) && Z_STRLEN_PP(e)
-	) {
-		parents = Z_STRVAL_PP(e);
-		parents_len = Z_STRLEN_PP(e);
+	if ((e = zend_hash_str_find(ht, "parents", strlen("parents"))) != NULL && Z_TYPE_P(e) == IS_STRING && Z_STRLEN_P(e)) {
+		parents = Z_STRVAL_P(e);
+		parents_len = Z_STRLEN_P(e);
 	}
 
 	bbcode_parser_add_ruleset(parser, type, flags,
@@ -264,9 +255,9 @@ static void _php_bbcode_add_element(bbcode_parser_p parser, char *tag_name, int 
 /* {{{ Resource destructor */
 static ZEND_RSRC_DTOR_FUNC(php_bbcode_dtor)
 {
-	bbcode_parser_p parser = (bbcode_parser_p)rsrc->ptr;
-	if (parser) {
-		bbcode_parser_free(parser);
+	if (res->ptr) {
+		bbcode_parser_free((bbcode_parser_p)res->ptr);
+		res->ptr = NULL;
 	}
 }
 /* }}} */
@@ -400,40 +391,28 @@ static PHP_FUNCTION(bbcode_create)
 
 		i = myht ? zend_hash_num_elements(myht) : 0;
 		if (i > 0) {
-			char *key;
-			zval **data;
-			ulong index;
-			uint key_len;
-			HashPosition pos;
+			zend_string *key;
+			zval *data;
 			HashTable *tmp_ht;
 
-			/* Array walking */
-			zend_hash_internal_pointer_reset_ex(myht, &pos);
-			for (;; zend_hash_move_forward_ex(myht, &pos)) {
-				i = zend_hash_get_current_key_ex(myht, &key, &key_len, &index, 0, &pos);
-				if (i == HASH_KEY_NON_EXISTANT) {
-					break;
-				}
-
-				if (zend_hash_get_current_data_ex(myht, (void **) &data, &pos) == SUCCESS) {
-					tmp_ht = HASH_OF(*data);
+            /* Array walking */
+			ZEND_HASH_FOREACH_STR_KEY_VAL(myht, key, data) {
+                if (key && data != NULL) {
+					tmp_ht = HASH_OF(data);
 					if (tmp_ht) {
-						tmp_ht->nApplyCount++;
+						tmp_ht->u.v.nApplyCount++;
 					}
-					if (i == HASH_KEY_IS_STRING) {
-						/* Add Element to container */
-						_php_bbcode_add_element(parser, key, key_len - 1, *data TSRMLS_CC);
-					}
+					_php_bbcode_add_element(parser, ZSTR_VAL(key), ZSTR_LEN(key), data TSRMLS_CC);
 					if (tmp_ht) {
-							tmp_ht->nApplyCount--;
+							tmp_ht->u.v.nApplyCount--;
 					}
 				}
-			}
+			} ZEND_HASH_FOREACH_END();
 		}
 	}
 
 	/* Register resource and return it */
-	ZEND_REGISTER_RESOURCE(return_value, parser, le_bbcode);
+	RETURN_RES(zend_register_resource(parser, le_bbcode));
 }
 /* }}} */
 
@@ -445,7 +424,7 @@ static PHP_FUNCTION(bbcode_add_element)
 	zval *bbcode_entry;
 	bbcode_parser_p parser = NULL;
 	char *tag_name;
-	int tag_name_len;
+	size_t tag_name_len;
 
 	/* tag_definition is an array with these elements:
 
@@ -469,7 +448,10 @@ static PHP_FUNCTION(bbcode_add_element)
 		RETURN_NULL();
 	}
 
-	ZEND_FETCH_RESOURCE(parser, bbcode_parser_p, &z_bbcode_parser, -1, PHP_BBCODE_RES_NAME, le_bbcode);
+	if ((parser = (bbcode_parser_p)zend_fetch_resource_ex(z_bbcode_parser, PHP_BBCODE_RES_NAME, le_bbcode)) == NULL) {
+        RETURN_NULL();
+    }
+
 	_php_bbcode_add_element(parser, tag_name, tag_name_len, bbcode_entry TSRMLS_CC);
 	RETURN_TRUE;
 }
@@ -485,7 +467,7 @@ static PHP_FUNCTION(bbcode_destroy)
 		RETURN_NULL();
 	}
 
-	RETURN_BOOL(zend_list_delete(Z_LVAL_P(z_bbcode_parser)) == SUCCESS);
+	RETURN_BOOL(zend_list_delete(Z_RES_P(z_bbcode_parser)) == SUCCESS);
 }
 /* }}} */
 
@@ -496,7 +478,7 @@ static PHP_FUNCTION(bbcode_parse)
 	zval *z_bbcode_parser;
 	bbcode_parser_p parser;
 	char *string;
-	int str_len;
+	size_t str_len;
 	char *ret_string;
 	int ret_size;
 
@@ -504,12 +486,14 @@ static PHP_FUNCTION(bbcode_parse)
 		RETURN_NULL();
 	}
 
-	ZEND_FETCH_RESOURCE(parser, bbcode_parser_p, &z_bbcode_parser, -1, PHP_BBCODE_RES_NAME, le_bbcode);
+	if ((parser = (bbcode_parser_p)zend_fetch_resource_ex(z_bbcode_parser, PHP_BBCODE_RES_NAME, le_bbcode)) == NULL) {
+        RETURN_NULL();
+    }
 
 	/* convert string for bbcode_parse_string usage */
 	ret_string = bbcode_parse(parser, string, str_len, &ret_size);
 
-	RETVAL_STRINGL(ret_string, ret_size , 1);
+	RETVAL_STRINGL(ret_string, ret_size);
 	free(ret_string);
 }
 /* }}} */
@@ -520,14 +504,16 @@ static PHP_FUNCTION(bbcode_add_smiley)
 {
 	zval *z_bbcode_parser;
 	char *search, *replace;
-	int s_len, r_len;
+	size_t s_len, r_len;
 	bbcode_parser_p parser = NULL;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "rss", &z_bbcode_parser, &search, &s_len, &replace, &r_len) == FAILURE) {
 		RETURN_NULL();
 	}
 
-	ZEND_FETCH_RESOURCE(parser, bbcode_parser_p, &z_bbcode_parser, -1, PHP_BBCODE_RES_NAME, le_bbcode);
+	if ((parser = (bbcode_parser_p)zend_fetch_resource_ex(z_bbcode_parser, PHP_BBCODE_RES_NAME, le_bbcode)) == NULL) {
+        RETURN_NULL();
+    }
 
 	bbcode_parser_add_smiley(parser, search, s_len, replace, r_len);
 	RETURN_BOOL(SUCCESS);
@@ -548,7 +534,9 @@ static PHP_FUNCTION(bbcode_set_flags)
 		RETURN_NULL();
 	}
 
-	ZEND_FETCH_RESOURCE(parser, bbcode_parser_p, &z_bbcode_parser, -1, PHP_BBCODE_RES_NAME, le_bbcode);
+	if ((parser = (bbcode_parser_p)zend_fetch_resource_ex(z_bbcode_parser, PHP_BBCODE_RES_NAME, le_bbcode)) == NULL) {
+        RETURN_NULL();
+    }
 
 	flags = bbcode_parser_get_flags(parser);
 
@@ -584,8 +572,12 @@ static PHP_FUNCTION(bbcode_set_arg_parser)
 		RETURN_NULL();
 	}
 
-	ZEND_FETCH_RESOURCE(parser, bbcode_parser_p, &z_bbcode_parser, -1, PHP_BBCODE_RES_NAME, le_bbcode);
-	ZEND_FETCH_RESOURCE(arg_parser, bbcode_parser_p, &z_bbcode_parser_child, -1, PHP_BBCODE_RES_NAME, le_bbcode);
+	if ((parser = (bbcode_parser_p)zend_fetch_resource_ex(z_bbcode_parser, PHP_BBCODE_RES_NAME, le_bbcode)) == NULL) {
+        RETURN_NULL();
+    }
+    if ((arg_parser = (bbcode_parser_p)zend_fetch_resource_ex(z_bbcode_parser_child, PHP_BBCODE_RES_NAME, le_bbcode)) == NULL) {
+        RETURN_NULL();
+    }
 
 	bbcode_parser_set_arg_parser(parser, arg_parser);
 
