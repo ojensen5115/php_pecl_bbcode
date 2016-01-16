@@ -21,7 +21,7 @@
 #ifndef PHP_BBCODE_H
 #define PHP_BBCODE_H
 
-#define PHP_BBCODE_VERSION "1.1.0-dev"
+#define PHP_BBCODE_VERSION "2.0.1"
 #define PHP_BBCODE_EXTNAME "bbcode"
 #define PHP_BBCODE_RES_NAME "BBCode resource"
 
